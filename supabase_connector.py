@@ -1,14 +1,13 @@
 import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
-import json
 
 load_dotenv()
 
 supabase = None
 
-SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
-SUPABASE_ANON_KEY = os.getenv('VITE_SUPABASE_ANON_KEY')
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
 
 supabase = None
 if SUPABASE_URL is not None and SUPABASE_ANON_KEY is not None:

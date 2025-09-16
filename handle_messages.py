@@ -1,5 +1,7 @@
 import uuid
 import supabase_connector
+import chat_bot
+import asyncio
 
 def format_message(data):
     # Formato requerido para el campo message (jsonb)
@@ -10,8 +12,12 @@ def format_message(data):
         "additional_kwargs": {},
         "response_metadata": {}
     }
-
+    
 def save_message(data):
     data = format_message(data)
     conversation_id = str(uuid.uuid4())
     supabase_connector.add_conversation_history(conversation_id, data)
+
+def get_chatbot_response(data):
+    query = data.get("message", {}).get("conversation", "")
+    return asyncio.run(chat_bot.chating(query))

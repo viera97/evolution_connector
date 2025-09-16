@@ -2,42 +2,62 @@ import os
 import time
 from dotenv import load_dotenv
 from evolutionapi.client import EvolutionClient
-import handle_messages
+from evolutionapi.models.message import TextMessage
+class EvolutionConnector:
+    def __init__(self):
+        load_dotenv()
+        self.api_url = os.getenv("EVOLUTION_API_URL")
+        self.api_key = os.getenv("EVOLUTION_API_KEY")
+        self.instance_id = os.getenv("EVOLUTION_API_INSTANCE")
 
-load_dotenv()
+        if not self.api_url:
+            raise ValueError("La variable de entorno EVOLUTION_API_URL no está definida.")
+        if not self.api_key:
+            raise ValueError("La variable de entorno EVOLUTION_API_KEY no está definida.")
+        if not self.instance_id:
+            raise ValueError("La variable de entorno EVOLUTION_API_INSTANCE no está definida.")
 
+        self.client = EvolutionClient(
+            base_url=self.api_url,
+            api_token=self.api_key
+        )
+        self.websocket = self.client.create_websocket(
+            instance_id=self.instance_id,
+            api_token=self.api_key,
+            max_retries=5,
+            retry_delay=1.0
+        )
 
-EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL")
-EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY")
-EVOLUTION_API_INSTANCE = os.getenv("EVOLUTION_API_INSTANCE")
+    def start_listening(self, handle_message_fn):
+        self.websocket.on("messages.upsert", handle_message_fn)
+        self.websocket.connect()
+        print("Conectado al WebSocket. Esperando eventos...")
+        while True:
+            time.sleep(1)
 
-if not EVOLUTION_API_URL:
-    raise ValueError("La variable de entorno EVOLUTION_API_URL no está definida.")
-if not EVOLUTION_API_KEY:
-    raise ValueError("La variable de entorno EVOLUTION_API_KEY no está definida.")
-if not EVOLUTION_API_INSTANCE:
-    raise ValueError("La variable de entorno EVOLUTION_API_INSTANCE no está definida.")
+    def send_message(self, to, message):
+        if not self.instance_id or not self.api_key:
+            raise ValueError("instance_id and api_key must be set and not None.")
+        text_msg = TextMessage(
+            number=to,
+            text=message
+        )
+        return self.client.messages.send_text(self.instance_id, text_msg, self.api_key)
+    
 
-client = EvolutionClient(
-    base_url=EVOLUTION_API_URL,
-    api_token=EVOLUTION_API_KEY
-)
+# Example usage:
+if __name__ == "__main__":
+    import handle_messages
+    
+    connector = EvolutionConnector()
 
-websocket = client.create_websocket(
-    instance_id=EVOLUTION_API_INSTANCE,
-    api_token=EVOLUTION_API_KEY,
-    max_retries=5,
-    retry_delay=1.0
-)
+    def handle_message(data):
+        if not data["data"]["key"]["fromMe"]:
+            #print(data["data"])
+            phone = data["data"]['key']['remoteJid'].split('@')[0]
+            #TODO poner que esta escribiendo el bot
+            response = handle_messages.get_chatbot_response(data["data"])
+            connector.send_message(phone, response)
+            handle_messages.save_message(data["data"])
 
-def handle_message(data):
-    if not data["data"]["key"]["fromMe"]:
-        handle_messages.save_message(data["data"])
-
-websocket.on("messages.upsert", handle_message)
-
-websocket.connect()
-print("Conectado al WebSocket. Esperando eventos...")
-
-while True:
-    time.sleep(1)
+    connector.start_listening(handle_message)
