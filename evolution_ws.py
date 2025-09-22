@@ -67,20 +67,23 @@ class EvolutionConnector:
             text=message
         )
         return self.client.messages.send_text(self.instance_id, text_msg, self.api_key)
-    
+
 if __name__ == "__main__":
     import handle_messages
-    from chat_bot import initialize, chating
+    from chat_bot import initialize, get_system_prompt
 
     connector = EvolutionConnector()
 
     # Dictionary to store bot instances. Keys 'A1', 'A2', 'A3' are extra bots always available for assignment.
-    bots_dic = {
-        'A1': [time.time(), asyncio.run(initialize())],
-        'A2': [time.time(), asyncio.run(initialize())],
-        'A3': [time.time(), asyncio.run(initialize())]
-    }
+    prompt = get_system_prompt("Clinica_prompt.txt")
 
+    bots_dict = {
+        #key: [starting time, bot, running]
+        'A1': [time.time(), asyncio.run(initialize(prompt)), True],
+        'A2': [time.time(), asyncio.run(initialize(prompt)), True],
+        'A3': [time.time(), asyncio.run(initialize(prompt)), True]
+    }
+    
     def handle_message(data:dict):
         # Only process messages not sent by ourselves
         if not data["data"]["key"]["fromMe"]:
@@ -89,30 +92,54 @@ if __name__ == "__main__":
                 phone = data["data"]['key']['remoteJid'].split('@')[0]
 
                 # If this phone number does not have a bot assigned
-                if phone not in bots_dic:
+                if phone not in bots_dict:
                     # Find available extra bot keys (those starting with 'A')
-                    extra_keys = [k for k in bots_dic if k.startswith('A')]
+                    extra_keys = [k for k in bots_dict if k.startswith('A')]
                     if extra_keys:
                         # Assign the first available extra bot to this phone
                         first_extra = extra_keys[0]
-                        bots_dic[phone] = bots_dic.pop(first_extra)
+                        bots_dict[phone] = bots_dict.pop(first_extra)
                         # Add a new extra bot to maintain the pool of 3
-                        next_index = max([int(k[1:]) for k in bots_dic if k.startswith('A')], default=0) + 1
+                        next_index = max([int(k[1:]) for k in bots_dict if k.startswith('A')], default=0) + 1
                         new_key = f"A{next_index}"
-                        bots_dic[new_key] = [time.time(), asyncio.run(initialize())]
+                        bots_dict[new_key] = [time.time(), asyncio.run(initialize(prompt))]
 
-                #Update time in dictionary
-                bots_dic[phone][0] = time.time()
-                
-                #TODO revisar como hacer bien lo del composing
-                #connector.send_presence(phone, presence_type="composing")
+                # If the phone number has a bot assigned and the bot is running
+                if bots_dict[phone][2]:
+                    #Update time in dictionary
+                    bots_dict[phone][0] = time.time()
 
-                #Get bot response
-                response = handle_messages.get_chatbot_response(bots_dic[phone][1], data["data"])
-                connector.send_message(phone, response)
+                    #TODO revisar como hacer bien lo del composing
+                    #Indicate typing status
+                    #connector.send_presence(phone, presence_type="composing")
 
-                #Save message in supabase
-                handle_messages.save_message(data["data"])
+                    #Get bot response
+
+                    #!Debuging
+                    print("respondiendo a ", phone)
+                    response = handle_messages.get_chatbot_response(bots_dict[phone][1], data["data"])
+                    #!Debuging
+                    print(response)
+
+                    connector.send_message(phone, response)
+
+                    #Save message in supabase
+                    handle_messages.save_message(data["data"])
+        else:
+            # If the message is from ourselves and to a private chat
+            if data["data"]['key']['remoteJid'].split('@')[1] == "s.whatsapp.net":
+                phone = data["data"]['key']['remoteJid'].split('@')[0]
+
+                # If our message is the start command "/start"
+                if data["data"].get("message", {}).get("conversation", "") == "/start":
+                    if phone in bots_dict:
+                        bots_dict[phone][2] = True
+                        connector.send_message(phone, "Bot reactivado. ¿En qué puedo ayudarte?")
+
+                # Else stop the bot
+                else:
+                    if phone in bots_dict:
+                        bots_dict[data["data"]['key']['remoteJid'].split('@')[0]][2] = False
 
     # Start listening for incoming messages
     connector.start_listening(handle_message)
