@@ -1,5 +1,3 @@
-
-
 # evolution_connector
 
 Connector between the Evolution API, Fastchat, and Supabase to store and analyze chatbot conversation history.
@@ -13,11 +11,16 @@ This project integrates:
 
 ## Project Structure
 
-- `evolution_ws.py`: Main connector. Manages WebSocket events, bot assignment, and message flow.
-- `chat_bot.py`: Fastchat bot initialization and query handling.
-- `handle_messages.py`: Formats, saves, and retrieves messages from Supabase.
-- `supabase_connector.py`: Supabase client setup and CRUD operations for conversation history.
-- `Clinica_prompt.txt`: System prompt for bot initialization.
+- `src/` - Main source code:
+  - `chat_bot.py`: Fastchat bot initialization and query handling.
+  - `evolution_ws.py`: Main connector. Manages WebSocket events, bot assignment, and message flow.
+  - `handle_messages.py`: Formats, saves, and retrieves messages from Supabase.
+  - `supabase_connector.py`: Supabase client setup and CRUD operations for conversation history.
+- `prompts/` - System prompts and templates:
+  - `initial_prompt.txt` or `Clinica_prompt.txt`: System prompt for bot initialization.
+- `config/` - Configuration files:
+  - `fastchat.config.json`: Fastchat MCP configuration.
+- `tests/` - Unit and integration tests.
 - `.env`: Environment variables for API keys and configuration.
 - `requirements.txt`: Python dependencies.
 
@@ -43,7 +46,7 @@ This project integrates:
 
 Start the connector to listen for incoming messages and store conversations:
 ```fish
-python evolution_ws.py
+python src/evolution_ws.py
 ```
 
 ## How It Works
@@ -54,30 +57,19 @@ python evolution_ws.py
 4. The response is sent back via Evolution API and saved to Supabase.
 5. All conversation history is available for analysis in Supabase.
 
+## Example
+
+```python
+from src.chat_bot import initialize, chating, get_system_prompt
+prompt = get_system_prompt("prompts/initial_prompt.txt")
+bot = asyncio.run(initialize(prompt))
+response = asyncio.run(chating(bot, "Quiero una cita"))
+print(response)
+```
+
 ## Main Dependencies
 
 - `evolutionapi`: API client for WhatsApp messaging.
 - `fastchat-mcp`: Chatbot logic and LLM integration.
 - `supabase`: Database client for storing conversation history.
 - `python-dotenv`: Loads environment variables from `.env`.
-
-## Example
-
-```python
-from chat_bot import initialize, chating, get_system_prompt
-prompt = get_system_prompt("Clinica_prompt.txt")
-bot = asyncio.run(initialize(prompt))
-response = asyncio.run(chating(bot, "Quiero una cita"))
-print(response)
-```
-
-## Notes
-
-- Ensure all environment variables are set correctly in `.env`.
-- The connector is designed to run as a daemon/service.
-- You can customize the system prompt in `initial_prompt.txt`.
-- Conversation history is stored in the `chatbot.conversation_history` table in Supabase.
-
-## License
-
-MIT
