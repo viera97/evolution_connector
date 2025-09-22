@@ -75,7 +75,7 @@ print(response)
 
 - Ensure all environment variables are set correctly in `.env`.
 - The connector is designed to run as a daemon/service.
-- You can customize the system prompt in `Clinica_prompt.txt`.
+- You can customize the system prompt in `initial_prompt.txt`.
 - Conversation history is stored in the `chatbot.conversation_history` table in Supabase.
 
 ## License
