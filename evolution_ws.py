@@ -75,7 +75,7 @@ if __name__ == "__main__":
     connector = EvolutionConnector()
 
     # Dictionary to store bot instances. Keys 'A1', 'A2', 'A3' are extra bots always available for assignment.
-    prompt = get_system_prompt("Clinica_prompt.txt")
+    prompt = get_system_prompt("initial_prompt.txt")
 
     bots_dict = {
         #key: [starting time, bot, running]
