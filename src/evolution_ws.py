@@ -75,7 +75,11 @@ if __name__ == "__main__":
     connector = EvolutionConnector()
 
     # Dictionary to store bot instances. Keys 'A1', 'A2', 'A3' are extra bots always available for assignment.
-    prompt = get_system_prompt("../prompts/initial_prompt.txt")
+    # Use absolute path that works both locally and in Docker
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    prompt_path = os.path.join(os.path.dirname(script_dir), "prompts", "initial_prompt.txt")
+    prompt = get_system_prompt(prompt_path)
 
     bots_dict = {
         #key: [starting time, bot, running]
