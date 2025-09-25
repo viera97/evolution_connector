@@ -17,8 +17,7 @@ This project integrates:
   - `handle_messages.py`: Formats, saves, and retrieves messages from Supabase.
   - `supabase_connector.py`: Supabase client setup and CRUD operations for conversation history.
 - `prompts/` - System prompts and templates:
-  - `initial_prompt.txt` or `Clinica_prompt.txt`: System prompt for bot initialization.
-- `config/` - Configuration files:
+  - `initial_prompt.txt`: System prompt for bot initialization.
   - `fastchat.config.json`: Fastchat MCP configuration.
 - `tests/` - Unit and integration tests.
 - `.env`: Environment variables for API keys and configuration.
@@ -61,6 +60,8 @@ python src/evolution_ws.py
 
 ```python
 from src.chat_bot import initialize, chating, get_system_prompt
+import asyncio
+
 prompt = get_system_prompt("prompts/initial_prompt.txt")
 bot = asyncio.run(initialize(prompt))
 response = asyncio.run(chating(bot, "Quiero una cita"))
