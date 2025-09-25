@@ -73,14 +73,15 @@ if __name__ == "__main__":
     from chat_bot import initialize, get_system_prompt
 
     connector = EvolutionConnector()
-
-    # Dictionary to store bot instances. Keys 'A1', 'A2', 'A3' are extra bots always available for assignment.
+    
     # Use absolute path that works both locally and in Docker
     import os
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Obtaining initial prompt
     prompt_path = os.path.join(os.path.dirname(script_dir), "prompts", "initial_prompt.txt")
     prompt = get_system_prompt(prompt_path)
 
+    # Dictionary to store bot instances. Keys 'A1', 'A2', 'A3' are extra bots always available for assignment.
     bots_dict = {
         #key: [starting time, bot, running]
         'A1': [time.time(), asyncio.run(initialize(prompt)), True],
