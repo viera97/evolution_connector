@@ -6,10 +6,35 @@ from evolutionapi.models.message import TextMessage
 from evolutionapi.models.chat import Presence
 import asyncio
 
-# Main connector class for Evolution API
 class EvolutionConnector:
+    """
+    Main connector class for Evolution API.
+
+    This class handles the connection to the Evolution API, including
+    WebSocket for real-time events and sending messages.
+
+    Attributes
+    ----------
+    api_url : str
+        The URL of the Evolution API.
+    api_key : str
+        The API key for the Evolution API.
+    instance_id : str
+        The instance ID for the Evolution API.
+    client : EvolutionClient
+        The Evolution API client.
+    websocket : any
+        The WebSocket manager for real-time events.
+    """
     def __init__(self):
-        # Load environment variables for API credentials
+        """
+        Initializes the EvolutionConnector.
+
+        Raises
+        ------
+        ValueError
+            If any of the required environment variables are not set.
+        """
         load_dotenv()
         self.api_url = os.getenv("EVOLUTION_API_URL")
         self.api_key = os.getenv("EVOLUTION_API_KEY")
@@ -38,7 +63,14 @@ class EvolutionConnector:
         )
 
     def start_listening(self, handle_message_fn):
-        # Register callback for incoming messages
+        """
+        Starts listening for incoming messages.
+
+        Parameters
+        ----------
+        handle_message_fn : function
+            The function to be called when a message is received.
+        """
         self.websocket.on("messages.upsert", handle_message_fn)
         self.websocket.connect()
         print("Connected to WebSocket. Waiting for events...")
@@ -46,8 +78,24 @@ class EvolutionConnector:
         while True:
             time.sleep(1)
 
-    def send_presence(self, to:str, presence_type :str ="composing", delay : int =100000):
-        # Send WhatsApp presence status (e.g., typing indicator)
+    def send_presence(self, to: str, presence_type: str = "composing", delay: int = 100000):
+        """
+        Sends a WhatsApp presence status (e.g., typing indicator).
+
+        Parameters
+        ----------
+        to : str
+            The recipient's phone number.
+        presence_type : str, optional
+            The type of presence to send. Defaults to "composing".
+        delay : int, optional
+            The delay in milliseconds. Defaults to 100000.
+
+        Raises
+        ------
+        ValueError
+            If instance_id or api_key are not set.
+        """
         if not self.instance_id or not self.api_key:
             raise ValueError("instance_id and api_key must be set and not None.")
         presence_config = Presence(
@@ -56,10 +104,28 @@ class EvolutionConnector:
             presence=presence_type  # "composing" means typing
         )
         self.client.chat.send_presence(self.instance_id, presence_config, self.api_key)
-    
 
-    def send_message(self, to:str, message:str):
-        # Send a WhatsApp text message using Evolution API
+    def send_message(self, to: str, message: str):
+        """
+        Sends a WhatsApp text message using Evolution API.
+
+        Parameters
+        ----------
+        to : str
+            The recipient's phone number.
+        message : str
+            The message to be sent.
+
+        Raises
+        ------
+        ValueError
+            If instance_id or api_key are not set.
+
+        Returns
+        -------
+        any
+            The response from the API.
+        """
         if not self.instance_id or not self.api_key:
             raise ValueError("instance_id and api_key must be set and not None.")
         text_msg = TextMessage(
@@ -73,9 +139,7 @@ if __name__ == "__main__":
     from chat_bot import initialize, get_system_prompt
 
     connector = EvolutionConnector()
-    
-    # Use absolute path that works both locally and in Docker
-    import os
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # Obtaining initial prompt
     prompt_path = os.path.join(os.path.dirname(script_dir), "prompts", "initial_prompt.txt")
@@ -89,7 +153,15 @@ if __name__ == "__main__":
         'A3': [time.time(), asyncio.run(initialize(prompt)), True]
     }
     
-    def handle_message(data:dict):
+    def handle_message(data: dict):
+        """
+        Handles incoming messages from the WebSocket.
+
+        Parameters
+        ----------
+        data : dict
+            The message data received from the WebSocket.
+        """
         # Only process messages not sent by ourselves
         if not data["data"]["key"]["fromMe"]:
             # Only handle WhatsApp private messages
