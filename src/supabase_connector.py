@@ -20,7 +20,19 @@ else:
     raise ValueError("Environment variables VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY are not defined.")
 
 def get_all_conversation_history():
-    # Retrieves all conversation history records from Supabase
+    """
+    Retrieves all conversation history records from Supabase.
+
+    Returns
+    -------
+    list
+        A list of conversation history records.
+
+    Raises
+    -------
+    RuntimeError
+        If the Supabase client is not initialized.
+    """
     if not supabase:
         raise RuntimeError("Supabase client is not initialized.")
     # Query using the full schema and table name
@@ -28,7 +40,26 @@ def get_all_conversation_history():
     return response.data
 
 def add_conversation_history(session_id: str, message: dict):
-    # Adds a new conversation history record to Supabase
+    """
+    Adds a new conversation history record to Supabase.
+
+    Parameters
+    ----------
+    session_id : str
+        The ID of the session.
+    message : dict
+        The message to be added to the history.
+
+    Returns
+    -------
+    list
+        The data returned by the Supabase client.
+
+    Raises
+    -------
+    RuntimeError
+        If the Supabase client is not initialized.
+    """
     if not supabase:
         raise RuntimeError("Supabase client is not initialized.")
     data = {
