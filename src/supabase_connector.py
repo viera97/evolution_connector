@@ -1,5 +1,4 @@
 import os
-import asyncio
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -13,15 +12,16 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
 
 # Initialize Supabase client if credentials are available
-if SUPABASE_URL and SUPABASE_ANON_KEY:
+supabase = None
+if SUPABASE_URL is not None and SUPABASE_ANON_KEY is not None:
     supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 else:
     # Raise error if credentials are missing
-    raise ValueError("Environment variables SUPABASE_URL and/or SUPABASE_ANON_KEY are not defined.")
+    raise ValueError("Environment variables VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY are not defined.")
 
-async def get_all_conversation_history():
+def get_all_conversation_history():
     """
-    Retrieves all conversation history records from Supabase asynchronously.
+    Retrieves all conversation history records from Supabase.
 
     Returns
     -------
@@ -35,23 +35,68 @@ async def get_all_conversation_history():
     """
     if not supabase:
         raise RuntimeError("Supabase client is not initialized.")
-    
-    # Ejecutar la operación en un thread pool para no bloquear
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(
-        None, 
-        lambda: supabase.schema("chatbot").table('conversation_history').select('*').execute()
-    )
+    # Query using the full schema and table name
+    response = supabase.schema("chatbot").table('conversation_history').select('*').execute()
     return response.data
 
-async def get_all_customers():
+def get_customers(phone: str | None = None, customer_id: str | None = None):
     """
-    Retrieves all customer records from Supabase asynchronously.
+    Retrieves customer records from Supabase, optionally filtered by phone number or customer ID.
+
+    Parameters
+    ----------
+    phone : str, optional
+        The phone number to filter by. If None, no phone filter is applied.
+    customer_id : str, optional
+        The customer ID to filter by. If None, no ID filter is applied.
 
     Returns
     -------
     list
-        A list of customer records.
+        A list of customer records matching the criteria.
+
+    Raises
+    -------
+    RuntimeError
+        If the Supabase client is not initialized.
+    ValueError
+        If both phone and customer_id are provided (mutually exclusive).
+    """
+    if not supabase:
+        raise RuntimeError("Supabase client is not initialized.")
+    
+    # Validate that only one filter is provided
+    if phone is not None and customer_id is not None:
+        raise ValueError("Cannot filter by both phone and customer_id. Use only one parameter.")
+    
+    # Start building the query
+    query = supabase.table('customers').select('*')
+    
+    # Add phone filter if provided
+    if phone is not None:
+        query = query.eq('phone', phone)
+    
+    # Add customer_id filter if provided
+    if customer_id is not None:
+        query = query.eq('id', customer_id)
+    
+    # Execute the query
+    response = query.execute()
+    return response.data
+
+def add_customers(phone: str, username:str | None = None):
+    """
+    Adds a new customer record to Supabase.
+
+    Parameters
+    ----------
+    phone : str
+        The phone number of the customer.
+
+    Returns
+    -------
+    list
+        The data returned by the Supabase client.
 
     Raises
     -------
@@ -60,12 +105,11 @@ async def get_all_customers():
     """
     if not supabase:
         raise RuntimeError("Supabase client is not initialized.")
-    
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(
-        None,
-        lambda: supabase.table('customers').select('*').execute()
-    )
+    data = {
+        "phone": phone,
+        "user_name":username
+    }
+    response = supabase.table('customers').insert(data).execute()
     return response.data
 
 def add_conversation_history(customer_id: str, message: dict):
@@ -101,11 +145,29 @@ def add_conversation_history(customer_id: str, message: dict):
 if __name__ == "__main__":
     # Retrieve all conversation history records
     data = get_all_conversation_history()
+    print(f"Found {len(data)} conversation records")
+    
+    # Example: Get all customers
+    all_customers = get_customers()
+    print(f"Found {len(all_customers)} customers")
+    
+    # Example: Get customer by phone
+    customer_by_phone = get_customers(phone="34662578011")
+    print(f"Found {len(customer_by_phone)} customers with that phone")
+    
+    # Example: Get customer by ID
+    if all_customers:
+        customer_by_id = get_customers(customer_id=all_customers[0]['id'])
+        print(f"Found {len(customer_by_id)} customers with that ID")
+    
     example_message = {
         "type": "human",
-        "content": "User with name and phone number 34685583840 sent the following message: hola\n\n\n\nIs a client of the company:\n0bc55fa1-b516-47b7-afc3-11f7f9250f03\nphone: 34662578011\n",
+        "content": "Test message",
         "additional_kwargs": {},
         "response_metadata": {}
     }
-    # Add a new conversation history record
-    add_conversation_history(get_all_customers()[0]['id'], example_message)
+    
+    # Add a new conversation history record if we have customers
+    if all_customers:
+        add_conversation_history(all_customers[0]['id'], example_message)
+        print("Added test conversation")

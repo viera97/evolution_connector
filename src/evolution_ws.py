@@ -4,7 +4,9 @@ from dotenv import load_dotenv
 from evolutionapi.client import EvolutionClient
 from evolutionapi.models.message import TextMessage
 from evolutionapi.models.chat import Presence
+from evolutionapi.models.profile import FetchProfile
 import asyncio
+import supabase_connector
 
 class EvolutionConnector:
     """
@@ -77,6 +79,30 @@ class EvolutionConnector:
         # Keep the process alive to listen for events
         while True:
             time.sleep(1)
+    
+    def fetch_username(self, phone: str):
+        # Validate required credentials
+        if not self.instance_id or not self.api_key:
+            return None
+            
+        # Create profile config with the actual sender's phone number
+        config = FetchProfile(number=phone)
+        
+        # Fetch profile using correct parameters
+        profile_response = self.client.profile.fetch_profile(
+            instance_id=self.instance_id,
+            data=config,
+            instance_token=self.api_key
+        )
+        
+        # Extract user name if available
+        user_name = None
+        if profile_response and hasattr(profile_response, 'name'):
+            user_name = profile_response.name
+        elif isinstance(profile_response, dict) and 'name' in profile_response:
+            user_name = profile_response['name']
+        
+        return user_name
 
     def send_presence(self, to: str, presence_type: str = "composing", delay: int = 100000):
         """
@@ -168,6 +194,11 @@ if __name__ == "__main__":
             if data["data"]['key']['remoteJid'].split('@')[1] == "s.whatsapp.net":
                 phone = data["data"]['key']['remoteJid'].split('@')[0]
 
+                # Fetch user profile for better customer experience
+                # Validate required credentials
+                if not connector.instance_id or not connector.api_key:
+                    raise ValueError("instance_id and api_key must be set to fetch profile.")
+
                 # If this phone number does not have a bot assigned
                 if phone not in bots_dict:
                     # Find available extra bot keys (those starting with 'A')
@@ -196,16 +227,22 @@ if __name__ == "__main__":
                     print("respondiendo a ", phone)
                     response = handle_messages.get_chatbot_response(bots_dict[phone][1], data["data"])
                     #!Debuging
-                    print(response)
+                    #print(response)
 
-                    connector.send_message(phone, response)
+                    #connector.send_message(phone, response)
 
+                    # Create or update customer in Supabase with profile information
                     
-                    #Save message in supabase
-                    #handle_messages.save_message(data["data"])
+                    existing_customers = supabase_connector.get_customers(phone=phone)
+                    if len(existing_customers) == 0:
+                        username = connector.fetch_username(phone)
+                        print(supabase_connector.add_customers(phone=phone, username=username))
 
+                    #Save message in supabase
+                    handle_messages.save_message(data["data"], customer_id=supabase_connector.get_customers(phone=phone)[0]['id'])
+                    
                     data["data"]["message"] = response
-                    #handle_messages.save_message(data["data"], is_bot=True)
+                    handle_messages.save_message(data["data"], is_bot=True, customer_id=supabase_connector.get_customers(phone=phone)[0]['id'])
 
         else:
             # If the message is from ourselves and to a private chat
