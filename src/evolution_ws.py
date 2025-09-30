@@ -80,7 +80,28 @@ class EvolutionConnector:
         while True:
             time.sleep(1)
     
-    def fetch_username(self, phone: str):
+    def fetch_username(self, phone: str) -> str | None:
+        """
+        Fetches the username/profile name for a given phone number from WhatsApp.
+        
+        This method retrieves the WhatsApp profile information for the specified
+        phone number using the Evolution API. It attempts to extract the display
+        name from the user's WhatsApp profile.
+
+        Parameters
+        ----------
+        phone : str
+        The phone number to fetch the username for (without country code prefix).
+        Returns
+        -------
+        str or None
+            The username/display name if found, None if not available or if an error occurs.
+        Raises
+        ------
+        Exception
+        Any exception that occurs during the API call to fetch the profile.
+        """
+
         # Validate required credentials
         if not self.instance_id or not self.api_key:
             return None
