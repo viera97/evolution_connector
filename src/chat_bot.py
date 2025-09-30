@@ -1,7 +1,7 @@
 from fastchat import Fastchat  # Imports the Fastchat class for the chatbot
 import asyncio  # Imports asyncio for handling asynchronous functions
 
-async def initialize(initial_prompt: str = "") -> Fastchat:
+async def initialize(initial_prompt: str = "", model:str = "gpt-5-nano") -> Fastchat:
     """
     Initializes a Fastchat instance with an optional initial prompt.
 
@@ -15,7 +15,7 @@ async def initialize(initial_prompt: str = "") -> Fastchat:
     Fastchat
         An initialized Fastchat instance.
     """
-    bot: Fastchat = Fastchat(extra_reponse_system_prompts=[initial_prompt])
+    bot: Fastchat = Fastchat(extra_reponse_system_prompts=[initial_prompt], model=model)
     await bot.initialize()
 
     #!Debuging
@@ -63,4 +63,4 @@ def get_system_prompt(file: str) -> str:
 
 if __name__ == "__main__":
     # Runs the chatbot with the default prompt and a sample query
-    asyncio.run(chating(asyncio.run(initialize(get_system_prompt("Clinica_prompt.txt"))), "Quiero una cita"))
+    asyncio.run(chating(asyncio.run(initialize()), "Quiero una cita"))

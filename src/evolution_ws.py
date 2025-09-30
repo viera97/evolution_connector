@@ -200,8 +200,13 @@ if __name__ == "__main__":
 
                     connector.send_message(phone, response)
 
+                    
                     #Save message in supabase
-                    handle_messages.save_message(data["data"])
+                    #handle_messages.save_message(data["data"])
+
+                    data["data"]["message"] = response
+                    #handle_messages.save_message(data["data"], is_bot=True)
+
         else:
             # If the message is from ourselves and to a private chat
             if data["data"]['key']['remoteJid'].split('@')[1] == "s.whatsapp.net":
