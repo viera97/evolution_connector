@@ -1,6 +1,3 @@
-"""
-Bot Manager - Handles bot lifecycle, assignment, and monitoring.
-"""
 import time
 import asyncio
 import threading
@@ -15,7 +12,17 @@ class BotManager:
     """Manages bot instances, assignment, and lifecycle."""
     
     def __init__(self, prompt: str):
-        """Initialize bot manager with system prompt."""
+        """
+        Initialize bot manager with system prompt.
+        
+        Creates the initial pool of bots, starts the async event loop in a background
+        thread, and sets up the thread pool executor for async operations.
+        
+        Parameters
+        ----------
+        prompt : str
+            The system prompt to be used by all bot instances.
+        """
         self.prompt = prompt
         self.bots_dict = self._initialize_bot_pool()
         self._monitoring_active = False
@@ -27,7 +34,18 @@ class BotManager:
         self._start_async_loop()
     
     def _start_async_loop(self):
-        """Start an asyncio event loop in a background thread."""
+        """
+        Start an asyncio event loop in a background thread.
+        
+        Creates a new event loop and runs it in a daemon thread to handle
+        async operations without blocking the main thread. This allows the
+        WebSocket callback to schedule async operations.
+        
+        Notes
+        -----
+        The event loop runs indefinitely in the background thread until
+        the application terminates.
+        """
         def run_loop():
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
@@ -40,7 +58,21 @@ class BotManager:
         time.sleep(0.1)
     
     def _initialize_bot_pool(self) -> Dict:
-        """Initialize the initial pool of available bots."""
+        """
+        Initialize the initial pool of available bots.
+        
+        Creates three bot instances (A1, A2, A3) that are immediately available
+        for assignment to users. Each bot is initialized with the system prompt
+        and marked as active.
+        
+        Returns
+        -------
+        Dict
+            A dictionary mapping bot IDs to [timestamp, bot_instance, active_status].
+            The timestamp tracks the last interaction time, bot_instance is the
+            Fastchat object, and active_status is a boolean indicating if the bot
+            is currently responding to messages.
+        """
         return {
             'A1': [time.time(), asyncio.run(initialize(self.prompt)), True],
             'A2': [time.time(), asyncio.run(initialize(self.prompt)), True],
@@ -48,14 +80,42 @@ class BotManager:
         }
     
     async def _send_new_conversation_signal(self, bot_instance):
-        """Send a signal to the bot indicating a new conversation is starting."""
+        """
+        Send a signal to the bot indicating a new conversation is starting.
+        
+        Sends an internal system message to the bot to reset its conversational
+        context without clearing the system prompt or configuration. This is used
+        when converting inactive bots back to the pool.
+        
+        Parameters
+        ----------
+        bot_instance : Fastchat
+            The bot instance to send the signal to.
+            
+        Notes
+        -----
+        The message is processed internally by the bot and not stored in
+        conversation history or returned as a response.
+        """
         new_conversation_message = "SISTEMA: Se va a iniciar una nueva conversación. Olvida el contexto anterior y prepárate para atender a un nuevo cliente."
         # Send the message but don't store it in conversation history
         async for step in bot_instance(new_conversation_message):
             pass  # Just process the message internally, don't return response
     
     def start_monitoring(self):
-        """Start the bot monitoring thread."""
+        """
+        Start the bot monitoring thread.
+        
+        Initiates a daemon thread that monitors inactive bots and manages their
+        lifecycle. The monitor checks every 30 seconds for bots that have been
+        inactive for more than 20 minutes and either closes them or converts
+        them back to the pool depending on the total number of assigned bots.
+        
+        Notes
+        -----
+        The monitoring thread is started only once. Subsequent calls to this
+        method will be ignored if monitoring is already active.
+        """
         if not self._monitoring_active:
             monitor_thread = threading.Thread(target=self._monitor_inactive_bots, daemon=True)
             monitor_thread.start()
@@ -63,7 +123,27 @@ class BotManager:
             print("📊 Started bot inactivity monitor (checks every 30 seconds)")
     
     def handle_message(self, connector, data: dict):
-        """Handle incoming message and manage bot assignment."""
+        """
+        Handle incoming message and manage bot assignment.
+        
+        Processes incoming WhatsApp messages by assigning bots to users and
+        scheduling async operations to handle message processing and database
+        operations. Also handles bot commands for activation/deactivation.
+        
+        Parameters
+        ----------
+        connector : EvolutionConnector
+            The Evolution API connector instance for sending messages.
+        data : dict
+            The message data received from the WebSocket containing user info,
+            message content, and metadata.
+            
+        Notes
+        -----
+        Only processes messages from private WhatsApp chats (not groups).
+        Uses the background event loop for async operations to avoid blocking
+        the WebSocket callback.
+        """
         # Only process messages not sent by ourselves
         if not data["data"]["key"]["fromMe"]:
             if data["data"]['key']['remoteJid'].split('@')[1] == "s.whatsapp.net":
@@ -92,7 +172,29 @@ class BotManager:
             self._process_bot_command(connector, data)
     
     async def _process_user_message(self, connector, phone: str, data: dict):
-        """Process message from user."""
+        """
+        Process message from user asynchronously.
+        
+        Handles the complete message processing workflow including bot assignment,
+        response generation, message sending, and database operations. This function
+        runs in the background event loop to avoid blocking the main thread.
+        
+        Parameters
+        ----------
+        connector : EvolutionConnector
+            The Evolution API connector instance for sending messages.
+        phone : str
+            The user's phone number (without country code prefix).
+        data : dict
+            The message data containing the user's message and metadata.
+            
+        Notes
+        -----
+        This function performs several async operations:
+        - Bot response generation
+        - Customer data management in Supabase
+        - Message history storage
+        """
         # Assign bot if needed
         if phone not in self.bots_dict:
             self._assign_bot_to_user(phone)
@@ -114,7 +216,24 @@ class BotManager:
             await self._handle_customer_data(connector, phone, data, response)
     
     def _assign_bot_to_user(self, phone: str):
-        """Assign an available bot to a user."""
+        """
+        Assign an available bot to a user.
+        
+        Takes the first available bot from the pool (those with keys starting with 'A')
+        and assigns it to the specified phone number. After assignment, maintains
+        the minimum pool size by creating new bots if necessary.
+        
+        Parameters
+        ----------
+        phone : str
+            The user's phone number to assign a bot to.
+            
+        Notes
+        -----
+        The bot is assigned directly without sending a new conversation signal.
+        This allows the bot to maintain its system prompt while being ready to
+        serve the new user.
+        """
         extra_keys = [k for k in self.bots_dict if k.startswith('A')]
         if extra_keys:
             first_extra = extra_keys[0]
@@ -128,7 +247,19 @@ class BotManager:
             self._maintain_bot_pool()
     
     def _maintain_bot_pool(self):
-        """Maintain minimum pool size of 3 available bots."""
+        """
+        Maintain minimum pool size of 3 available bots.
+        
+        Ensures there are always at least 3 bots available in the pool for
+        immediate assignment to new users. Creates new bot instances asynchronously
+        using the background event loop to avoid blocking the main thread.
+        
+        Notes
+        -----
+        New bots are created with sequential IDs (A4, A5, etc.) and are initialized
+        with the same system prompt as the original pool bots. Bot creation is
+        scheduled asynchronously and doesn't block the current operation.
+        """
         remaining_extra_keys = [k for k in self.bots_dict if k.startswith('A')]
         if len(remaining_extra_keys) < 3:
             next_index = max([int(k[1:]) for k in self.bots_dict if k.startswith('A')], default=0) + 1
@@ -150,7 +281,24 @@ class BotManager:
             print(f"Pool has enough instances ({len(remaining_extra_keys)}), not creating new bot")
     
     async def _create_bot_async(self, new_key: str):
-        """Create a new bot instance asynchronously."""
+        """
+        Create a new bot instance asynchronously.
+        
+        Initializes a new Fastchat bot instance with the system prompt and adds
+        it to the bot pool. This function runs in the background event loop to
+        avoid blocking other operations.
+        
+        Parameters
+        ----------
+        new_key : str
+            The key identifier for the new bot (e.g., 'A4', 'A5').
+            
+        Notes
+        -----
+        If bot creation fails, an error message is logged but the operation
+        continues. The bot pool may temporarily have fewer than 3 available
+        bots until the next maintenance cycle.
+        """
         try:
             bot_instance = await initialize(self.prompt)
             self.bots_dict[new_key] = [time.time(), bot_instance, True]
@@ -159,7 +307,30 @@ class BotManager:
             print(f"❌ Error creating bot {new_key}: {e}")
     
     async def _handle_customer_data(self, connector, phone: str, data: dict, response: str):
-        """Handle customer creation and message saving."""
+        """
+        Handle customer creation and message saving asynchronously.
+        
+        Manages customer data in Supabase by creating new customer records when
+        needed and saving both user messages and bot responses to the conversation
+        history. Fetches user profile information from WhatsApp for new customers.
+        
+        Parameters
+        ----------
+        connector : EvolutionConnector
+            The Evolution API connector for fetching user profile information.
+        phone : str
+            The user's phone number.
+        data : dict
+            The original message data from the user.
+        response : str
+            The bot's response message.
+            
+        Notes
+        -----
+        All database operations are performed asynchronously to avoid blocking
+        the message processing pipeline. Errors are logged but do not prevent
+        the bot from responding to the user.
+        """
         try:
             # Create customer if doesn't exist
             existing_customers = await supabase_connector.get_customers(phone=phone)
@@ -185,7 +356,25 @@ class BotManager:
             print(f"❌ Error handling customer data for {phone}: {e}")
     
     def _process_bot_command(self, connector, data: dict):
-        """Process commands sent by the bot itself."""
+        """
+        Process commands sent by the bot itself.
+        
+        Handles special commands sent by the system or users to control bot
+        behavior, such as activating or deactivating bots for specific users.
+        
+        Parameters
+        ----------
+        connector : EvolutionConnector
+            The Evolution API connector for sending response messages.
+        data : dict
+            The message data containing the command.
+            
+        Notes
+        -----
+        Currently supports:
+        - '/start': Reactivates a bot for the user
+        - Any other message: Deactivates the bot for the user
+        """
         if data["data"]['key']['remoteJid'].split('@')[1] == "s.whatsapp.net":
             phone = data["data"]['key']['remoteJid'].split('@')[0]
             
@@ -198,7 +387,24 @@ class BotManager:
                     self.bots_dict[phone][2] = False
     
     def _monitor_inactive_bots(self):
-        """Monitor and manage inactive bots based on total count."""
+        """
+        Monitor and manage inactive bots based on total count.
+        
+        Runs continuously in a background thread, checking every 30 seconds for
+        bots that have been inactive for more than 20 minutes. Implements two
+        strategies based on the total number of assigned bots:
+        
+        - If more than 10 bots are assigned: closes inactive bots to free resources
+        - If 10 or fewer bots are assigned: converts inactive bots back to the pool
+        
+        Notes
+        -----
+        This function runs indefinitely until the application terminates. Only
+        monitors bots assigned to users (not pool bots with keys starting with 'A').
+        
+        When converting bots back to the pool, sends a new conversation signal
+        to reset their context before making them available for new users.
+        """
         while True:
             current_time = time.time()
             inactive_threshold = 20*60  # 20 minutes in seconds

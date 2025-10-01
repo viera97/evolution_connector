@@ -1,8 +1,6 @@
-import uuid
 import supabase_connector
 import chat_bot
 from fastchat import Fastchat
-import asyncio
 
 def format_message(data: dict, is_bot: bool = False) -> dict:
     """
