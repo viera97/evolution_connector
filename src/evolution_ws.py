@@ -213,6 +213,10 @@ if __name__ == "__main__":
         while True:
             current_time = time.time()
             inactive_threshold = 20 * 60  # 20 minutes in seconds
+            
+            #!Debuging
+            #inactive_threshold = 10
+
             bots_to_remove = []  # List to store keys of bots to remove
             bots_to_convert = []  # List to store bots to convert to pool
             
@@ -260,6 +264,17 @@ if __name__ == "__main__":
             for key in bots_to_convert:
                 if key in bots_dict:
                     bot_data = bots_dict[key]
+                    bot_instance = bot_data[1]  # The Fastchat bot instance
+                    
+                    # Clear chat history before converting to pool bot
+                    try:
+                        bot_instance.llm.chat_history.clear()
+                        bot_instance.llm.current_price = 0
+                        bot_instance.current_messages_set = None
+                        print(f"Cleared history for bot {key} before converting to pool")
+                    except Exception as e:
+                        print(f"Error clearing history for bot {key}: {e}")
+                    
                     # Find next available A key
                     existing_a_keys = [k for k in bots_dict.keys() if k.startswith('A')]
                     if existing_a_keys:
@@ -269,7 +284,7 @@ if __name__ == "__main__":
                     new_key = f"A{next_index}"
                     
                     # Move bot to pool with new timestamp and active status
-                    bots_dict[new_key] = [time.time(), bot_data[1], True]
+                    bots_dict[new_key] = [time.time(), bot_instance, True]
                     del bots_dict[key]
                     print(f"Converted bot {key} to pool bot {new_key}")
             
