@@ -8,7 +8,7 @@ from typing import Dict
 
 import handle_messages
 import supabase_connector
-from chat_bot import initialize
+from chat_bot import initialize, chating
 
 class BotManager:
     """Manages bot instances, assignment, and lifecycle."""
@@ -26,6 +26,13 @@ class BotManager:
             'A2': [time.time(), asyncio.run(initialize(self.prompt)), True],
             'A3': [time.time(), asyncio.run(initialize(self.prompt)), True]
         }
+    
+    async def _send_new_conversation_signal(self, bot_instance):
+        """Send a signal to the bot indicating a new conversation is starting."""
+        new_conversation_message = "SISTEMA: Se va a iniciar una nueva conversación. Olvida el contexto anterior y prepárate para atender a un nuevo cliente."
+        # Send the message but don't store it in conversation history
+        async for step in bot_instance(new_conversation_message):
+            pass  # Just process the message internally, don't return response
     
     def start_monitoring(self):
         """Start the bot monitoring thread."""
@@ -59,7 +66,6 @@ class BotManager:
             # Get response
             print(f"📱 Responding to {phone}")
             response = handle_messages.get_chatbot_response(self.bots_dict[phone][1], data["data"])
-            #!Debug
             print(response)
             
             # Send response
@@ -75,17 +81,9 @@ class BotManager:
             first_extra = extra_keys[0]
             assigned_bot = self.bots_dict.pop(first_extra)
             
-            # Clear history before assigning
-            try:
-                bot_instance = assigned_bot[1]
-                bot_instance.llm.chat_history.clear()
-                bot_instance.llm.current_price = 0
-                bot_instance.current_messages_set = None
-                print(f"🧹 Cleared history for bot {first_extra} before assigning to {phone}")
-            except Exception as e:
-                print(f"❌ Error clearing history for bot {first_extra}: {e}")
-            
+            # Assign bot directly without sending new conversation signal
             self.bots_dict[phone] = assigned_bot
+            print(f"🤖 Assigned bot {first_extra} to user {phone}")
             
             # Maintain pool size
             self._maintain_bot_pool()
@@ -145,7 +143,7 @@ class BotManager:
             current_time = time.time()
             #inactive_threshold = 20*60  # 20 minutes in seconds
             inactive_threshold = 10  # Debug mode
-
+            
             bots_to_remove = []  # List to store keys of bots to remove
             bots_to_convert = []  # List to store bots to convert to pool
             
@@ -194,14 +192,12 @@ class BotManager:
                     bot_data = self.bots_dict[key]
                     bot_instance = bot_data[1]  # The Fastchat bot instance
                     
-                    # Clear chat history before converting to pool bot
+                    # Send new conversation signal before converting to pool bot
                     try:
-                        bot_instance.llm.chat_history.clear()
-                        bot_instance.llm.current_price = 0
-                        bot_instance.current_messages_set = None
-                        print(f"Cleared history for bot {key} before converting to pool")
+                        asyncio.run(self._send_new_conversation_signal(bot_instance))
+                        print(f"🔄 Sent new conversation reset signal to bot {key} before converting to pool")
                     except Exception as e:
-                        print(f"Error clearing history for bot {key}: {e}")
+                        print(f"❌ Error sending new conversation signal to bot {key}: {e}")
                     
                     # Find next available A key
                     existing_a_keys = [k for k in self.bots_dict.keys() if k.startswith('A')]
@@ -214,7 +210,7 @@ class BotManager:
                     # Move bot to pool with new timestamp and active status
                     self.bots_dict[new_key] = [time.time(), bot_instance, True]
                     del self.bots_dict[key]
-                    print(f"Converted bot {key} to pool bot {new_key}")
+                    print(f"♻️  Converted bot {key} to pool bot {new_key} (ready for new customers)")
             
             # Wait 30 seconds before next check
             time.sleep(30)
