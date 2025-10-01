@@ -12,16 +12,20 @@ This project integrates:
 ## Project Structure
 
 - `src/` - Main source code:
+  - `main.py`: Application entry point and orchestration.
+  - `evolution_ws.py`: Evolution API WebSocket connector and messaging.
+  - `bot_manager.py`: Bot lifecycle management, assignment, and monitoring.
   - `chat_bot.py`: Fastchat bot initialization and query handling.
-  - `evolution_ws.py`: Main connector. Manages WebSocket events, bot assignment, and message flow.
-  - `handle_messages.py`: Formats, saves, and retrieves messages from Supabase.
-  - `supabase_connector.py`: Supabase client setup and CRUD operations for conversation history.
+  - `handle_messages.py`: Message formatting and Supabase operations.
+  - `supabase_connector.py`: Database CRUD operations for conversation history.
 - `prompts/` - System prompts and templates:
   - `initial_prompt.txt`: System prompt for bot initialization.
   - `fastchat.config.json`: Fastchat MCP configuration.
 - `tests/` - Unit and integration tests.
 - `.env`: Environment variables for API keys and configuration.
 - `requirements.txt`: Python dependencies.
+- `docker-compose.yml`: Docker orchestration configuration.
+- `Dockerfile`: Container build configuration.
 
 ## Installation
 
@@ -43,9 +47,22 @@ This project integrates:
 
 ## Usage
 
+### Running Locally
 Start the connector to listen for incoming messages and store conversations:
 ```fish
-python src/evolution_ws.py
+python src/main.py
+```
+
+### Running with Docker
+Build and run using Docker Compose:
+```fish
+docker-compose up --build
+```
+
+Or build and run manually:
+```fish
+docker build -t evolution-connector .
+docker run --env-file .env evolution-connector
 ```
 
 ## How It Works

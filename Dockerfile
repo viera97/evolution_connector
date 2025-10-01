@@ -34,5 +34,5 @@ USER appuser
 # Expose port (if needed for health checks or monitoring)
 EXPOSE 8000
 
-# Set the default command to run the evolution_ws.py script
-CMD ["python", "src/evolution_ws.py"]
+# Set the default command to run the main.py script
+CMD ["python", "src/main.py"]
