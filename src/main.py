@@ -1,14 +1,78 @@
 #!/usr/bin/env python3
-"""
-Main entry point for the Evolution Connector application.
-Orchestrates all components and starts the service.
-"""
+
 import os
+import signal
+import sys
+import asyncio
+from typing import Optional
 from dotenv import load_dotenv
 
 from evolution_ws import EvolutionConnector
 from bot_manager import BotManager
 from chat_bot import get_system_prompt
+
+# Global variables for cleanup
+connector: Optional[EvolutionConnector] = None
+bot_manager: Optional[BotManager] = None
+
+def signal_handler(signum, frame):
+    """
+    Handle shutdown signals (SIGINT, SIGTERM) for graceful cleanup.
+    
+    This function is called when the application receives a shutdown signal
+    (typically Ctrl+C). It performs cleanup operations including:
+    - Closing all bot instances
+    - Stopping the bot manager monitoring
+    - Disconnecting WebSocket connections
+    - Shutting down async event loops
+    
+    Parameters
+    ----------
+    signum : int
+        The signal number that triggered the handler.
+    frame : frame object
+        The current stack frame.
+    """
+    print("\n🛑 Shutdown signal received. Cleaning up...")
+    
+    try:
+        if bot_manager:
+            print("📋 Closing bot manager...")
+            # Stop monitoring
+            if hasattr(bot_manager, '_monitoring_active'):
+                bot_manager._monitoring_active = False
+            
+            # Close all bots
+            if hasattr(bot_manager, 'bots_dict'):
+                print(f"🤖 Closing {len(bot_manager.bots_dict)} bot instances...")
+                for key, bot_data in bot_manager.bots_dict.items():
+                    try:
+                        bot_instance = bot_data[1]
+                        if hasattr(bot_instance, 'close'):
+                            asyncio.run(bot_instance.close())
+                            print(f"✅ Closed bot {key}")
+                    except Exception as e:
+                        print(f"⚠️  Error closing bot {key}: {e}")
+            
+            # Shutdown executor
+            if hasattr(bot_manager, 'executor'):
+                print("🔧 Shutting down thread pool executor...")
+                bot_manager.executor.shutdown(wait=True)
+        
+        if connector:
+            print("🌐 Disconnecting WebSocket...")
+            # If the websocket has a disconnect method, call it
+            if hasattr(connector, 'websocket') and hasattr(connector.websocket, 'disconnect'):
+                connector.websocket.disconnect()
+        
+        print("✅ Cleanup completed successfully!")
+        
+    except Exception as e:
+        print(f"⚠️  Error during cleanup: {e}")
+    
+    finally:
+        print("👋 Evolution Connector shutting down...")
+        sys.exit(0)
 
 def main():
     """
@@ -41,6 +105,12 @@ def main():
     - SUPABASE_URL: Supabase project URL
     - SUPABASE_KEY: Supabase service key
     """
+    global connector, bot_manager
+    
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
+    
     load_dotenv()
     
     # Initialize components
@@ -57,13 +127,22 @@ def main():
     # Start monitoring
     bot_manager.start_monitoring()
     
-    # Define message handler
-    def handle_message(data: dict):
-        bot_manager.handle_message(connector, data)
-    
     # Start listening
     print("🚀 Evolution Connector starting...")
-    connector.start_listening(handle_message)
+    print("💡 Press Ctrl+C to stop the application gracefully")
+    
+    try:
+        # Define message handler with proper type checking
+        def handle_message(data: dict):
+            # At this point we know bot_manager and connector are not None
+            assert bot_manager is not None
+            assert connector is not None
+            bot_manager.handle_message(connector, data)
+        
+        connector.start_listening(handle_message)
+    except KeyboardInterrupt:
+        # This shouldn't be reached due to signal handler, but just in case
+        signal_handler(signal.SIGINT, None)
 
 if __name__ == "__main__":
     main()
