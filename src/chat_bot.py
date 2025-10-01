@@ -19,7 +19,7 @@ async def initialize(initial_prompt: str = "", model:str = "gpt-5-nano") -> Fast
     await bot.initialize()
 
     #!Debuging
-    print(bot)
+    #print(bot)
     return bot
 
 async def chating(bot: Fastchat, query: str) -> str:
