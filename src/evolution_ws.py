@@ -228,10 +228,16 @@ if __name__ == "__main__":
                         # Assign the first available extra bot to this phone
                         first_extra = extra_keys[0]
                         bots_dict[phone] = bots_dict.pop(first_extra)
-                        # Add a new extra bot to maintain the pool of 3
-                        next_index = max([int(k[1:]) for k in bots_dict if k.startswith('A')], default=0) + 1
-                        new_key = f"A{next_index}"
-                        bots_dict[new_key] = [time.time(), asyncio.run(initialize(prompt))]
+                        
+                        # Only add a new extra bot if we have less than 3 available instances
+                        remaining_extra_keys = [k for k in bots_dict if k.startswith('A')]
+                        if len(remaining_extra_keys) < 3:
+                            next_index = max([int(k[1:]) for k in bots_dict if k.startswith('A')], default=0) + 1
+                            new_key = f"A{next_index}"
+                            bots_dict[new_key] = [time.time(), asyncio.run(initialize(prompt)), True]
+                            print(f"Created new bot instance: {new_key}")
+                        else:
+                            print(f"Pool has enough instances ({len(remaining_extra_keys)}), not creating new bot")
 
                 # If the phone number has a bot assigned and the bot is running
                 if bots_dict[phone][2]:
