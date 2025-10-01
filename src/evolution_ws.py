@@ -75,6 +75,7 @@ class EvolutionConnector:
         """
         self.websocket.on("messages.upsert", handle_message_fn)
         self.websocket.connect()
+
         print("Connected to WebSocket. Waiting for events...")
         # Keep the process alive to listen for events
         while True:
@@ -184,6 +185,7 @@ class EvolutionConnector:
 if __name__ == "__main__":
     import handle_messages
     from chat_bot import initialize, get_system_prompt
+    import threading
 
     connector = EvolutionConnector()
 
@@ -199,6 +201,55 @@ if __name__ == "__main__":
         'A2': [time.time(), asyncio.run(initialize(prompt)), True],
         'A3': [time.time(), asyncio.run(initialize(prompt)), True]
     }
+
+    def monitor_inactive_bots():
+        """
+        Monitors assigned bot instances and closes those inactive for more than 10 minutes.
+        Only checks bots assigned to users (not pool bots starting with 'A').
+        Runs in a separate thread and checks every 30 seconds.
+        """
+        while True:
+            current_time = time.time()
+            #inactive_threshold = 10*60  # 10 minutes in seconds
+            inactive_threshold = 10
+            bots_to_remove = []  # List to store keys of bots to remove
+            
+            for key, bot_data in bots_dict.items():
+                # Only monitor bots assigned to users (skip pool bots starting with 'A')
+                if not key.startswith('A'):
+                    last_interaction_time = bot_data[0]
+                    is_active = bot_data[2]
+                    bot_instance = bot_data[1]  # The Fastchat bot instance
+                    time_since_last_interaction = current_time - last_interaction_time
+                    
+                    # Check if bot has been inactive for more than 10 minutes
+                    if time_since_last_interaction > inactive_threshold:
+                        print(f"Closing bot {key} - inactive for {time_since_last_interaction/60:.1f} minutes")
+                        
+                        try:
+                            # Close the Fastchat bot instance (async method)
+                            asyncio.run(bot_instance.close())
+                            print(f"Successfully closed bot {key}")
+                        except Exception as e:
+                            print(f"Error closing bot {key}: {e}")
+                        
+                        # Mark for removal from dictionary
+                        bots_to_remove.append(key)
+            
+            # Remove closed bots from dictionary
+            for key in bots_to_remove:
+                if key in bots_dict:
+                    del bots_dict[key]
+                    print(f"Removed bot {key} from active dictionary")
+            
+            # Wait 30 seconds before next check
+            time.sleep(30)
+
+    # Start the monitoring thread
+    monitor_thread = threading.Thread(target=monitor_inactive_bots, daemon=True)
+    monitor_thread.start()
+    #!Debuging
+    print("Started bot inactivity monitor (checks every 30 seconds)")
     
     def handle_message(data: dict):
         """
@@ -235,13 +286,15 @@ if __name__ == "__main__":
                             next_index = max([int(k[1:]) for k in bots_dict if k.startswith('A')], default=0) + 1
                             new_key = f"A{next_index}"
                             bots_dict[new_key] = [time.time(), asyncio.run(initialize(prompt)), True]
+                            #!Debuging
                             print(f"Created new bot instance: {new_key}")
                         else:
+                            #!Debuging
                             print(f"Pool has enough instances ({len(remaining_extra_keys)}), not creating new bot")
 
                 # If the phone number has a bot assigned and the bot is running
                 if bots_dict[phone][2]:
-                    #Update time in dictionary
+                    #Update time in dictionary when bot is active and will respond
                     bots_dict[phone][0] = time.time()
 
                     #TODO revisar como hacer bien lo del composing
@@ -254,9 +307,9 @@ if __name__ == "__main__":
                     print("respondiendo a ", phone)
                     response = handle_messages.get_chatbot_response(bots_dict[phone][1], data["data"])
                     #!Debuging
-                    #print(response)
+                    print(response)
 
-                    #connector.send_message(phone, response)
+                    connector.send_message(phone, response)
 
                     # Create or update customer in Supabase with profile information
                     
