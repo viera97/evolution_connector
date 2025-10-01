@@ -30,7 +30,7 @@ def format_message(data: dict, is_bot: bool = False) -> dict:
         "response_metadata": {}   # Placeholder for response metadata
     }
 
-def save_message(data: dict, is_bot: bool = False, customer_id:str ="") -> None:
+async def save_message(data: dict, is_bot: bool = False, customer_id:str ="") -> None:
     """
     Saves the formatted message to the conversation history in Supabase.
 
@@ -42,9 +42,9 @@ def save_message(data: dict, is_bot: bool = False, customer_id:str ="") -> None:
     data = format_message(data, is_bot)
     customer_id = customer_id
     #conversation_id = str(uuid.uuid4())
-    supabase_connector.add_conversation_history(customer_id=customer_id, message=data)
+    await supabase_connector.add_conversation_history(customer_id=customer_id, message=data)
 
-def get_chatbot_response(bot: Fastchat, data: dict):
+async def get_chatbot_response(bot: Fastchat, data: dict):
     """
     Sends a query to the chatbot and returns its response.
 
@@ -61,4 +61,4 @@ def get_chatbot_response(bot: Fastchat, data: dict):
         The response from the chatbot.
     """
     query = data.get("message", {}).get("conversation", "")
-    return asyncio.run(chat_bot.chating(bot, query))
+    return await chat_bot.chating(bot, query)

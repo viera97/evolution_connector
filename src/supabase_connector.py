@@ -1,4 +1,5 @@
 import os
+import asyncio
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -39,7 +40,7 @@ def get_all_conversation_history():
     response = supabase.schema("chatbot").table('conversation_history').select('*').execute()
     return response.data
 
-def get_customers(phone: str | None = None, customer_id: str | None = None):
+async def get_customers(phone: str | None = None, customer_id: str | None = None):
     """
     Retrieves customer records from Supabase, optionally filtered by phone number or customer ID.
 
@@ -84,7 +85,7 @@ def get_customers(phone: str | None = None, customer_id: str | None = None):
     response = query.execute()
     return response.data
 
-def add_customers(phone: str, username:str | None = None):
+async def add_customers(phone: str, username:str | None = None):
     """
     Adds a new customer record to Supabase.
 
@@ -112,7 +113,7 @@ def add_customers(phone: str, username:str | None = None):
     response = supabase.table('customers').insert(data).execute()
     return response.data
 
-def add_conversation_history(customer_id: str, message: dict):
+async def add_conversation_history(customer_id: str, message: dict):
     """
     Adds a new conversation history record to Supabase.
 
@@ -142,22 +143,23 @@ def add_conversation_history(customer_id: str, message: dict):
     response = supabase.schema("chatbot").table('conversation_history').insert(data).execute()
     return response.data
 
-if __name__ == "__main__":
+async def main_example():
+    """Example usage of the async functions."""
     # Retrieve all conversation history records
     data = get_all_conversation_history()
     print(f"Found {len(data)} conversation records")
     
     # Example: Get all customers
-    all_customers = get_customers()
+    all_customers = await get_customers()
     print(f"Found {len(all_customers)} customers")
     
     # Example: Get customer by phone
-    customer_by_phone = get_customers(phone="34662578011")
+    customer_by_phone = await get_customers(phone="34662578011")
     print(f"Found {len(customer_by_phone)} customers with that phone")
     
     # Example: Get customer by ID
     if all_customers:
-        customer_by_id = get_customers(customer_id=all_customers[0]['id'])
+        customer_by_id = await get_customers(customer_id=all_customers[0]['id'])
         print(f"Found {len(customer_by_id)} customers with that ID")
     
     example_message = {
@@ -169,5 +171,8 @@ if __name__ == "__main__":
     
     # Add a new conversation history record if we have customers
     if all_customers:
-        add_conversation_history(all_customers[0]['id'], example_message)
+        await add_conversation_history(all_customers[0]['id'], example_message)
         print("Added test conversation")
+
+if __name__ == "__main__":
+    asyncio.run(main_example())
