@@ -279,7 +279,7 @@ if __name__ == "__main__":
     # Start the monitoring thread
     monitor_thread = threading.Thread(target=monitor_inactive_bots, daemon=True)
     monitor_thread.start()
-    #!Debuging
+    
     print("Started bot inactivity monitor (checks every 30 seconds)")
     
     def handle_message(data: dict):
