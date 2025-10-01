@@ -204,15 +204,21 @@ if __name__ == "__main__":
 
     def monitor_inactive_bots():
         """
-        Monitors assigned bot instances and closes those inactive for more than 10 minutes.
+        Monitors assigned bot instances and manages inactive bots based on total count:
+        - If more than 10 bots assigned: closes inactive bots
+        - If 10 or fewer bots assigned: converts inactive bots to pool bots (A prefix)
         Only checks bots assigned to users (not pool bots starting with 'A').
         Runs in a separate thread and checks every 30 seconds.
         """
         while True:
             current_time = time.time()
-            #inactive_threshold = 10*60  # 10 minutes in seconds
-            inactive_threshold = 10
+            inactive_threshold = 20 * 60  # 20 minutes in seconds
             bots_to_remove = []  # List to store keys of bots to remove
+            bots_to_convert = []  # List to store bots to convert to pool
+            
+            # Count assigned bots (not pool bots)
+            assigned_bots = [key for key in bots_dict.keys() if not key.startswith('A')]
+            assigned_bot_count = len(assigned_bots)
             
             for key, bot_data in bots_dict.items():
                 # Only monitor bots assigned to users (skip pool bots starting with 'A')
@@ -222,25 +228,50 @@ if __name__ == "__main__":
                     bot_instance = bot_data[1]  # The Fastchat bot instance
                     time_since_last_interaction = current_time - last_interaction_time
                     
-                    # Check if bot has been inactive for more than 10 minutes
+                    # Check if bot has been inactive for more than 20 minutes
                     if time_since_last_interaction > inactive_threshold:
-                        print(f"Closing bot {key} - inactive for {time_since_last_interaction/60:.1f} minutes")
                         
-                        try:
-                            # Close the Fastchat bot instance (async method)
-                            asyncio.run(bot_instance.close())
-                            print(f"Successfully closed bot {key}")
-                        except Exception as e:
-                            print(f"Error closing bot {key}: {e}")
-                        
-                        # Mark for removal from dictionary
-                        bots_to_remove.append(key)
+                        if assigned_bot_count > 10:
+                            # More than 10 bots: close the inactive ones
+                            print(f"Closing bot {key} - inactive for {time_since_last_interaction/60:.1f} minutes (total bots: {assigned_bot_count})")
+                            
+                            try:
+                                # Close the Fastchat bot instance (async method)
+                                asyncio.run(bot_instance.close())
+                                print(f"Successfully closed bot {key}")
+                            except Exception as e:
+                                print(f"Error closing bot {key}: {e}")
+                            
+                            # Mark for removal from dictionary
+                            bots_to_remove.append(key)
+                            
+                        else:
+                            # 10 or fewer bots: convert to pool bot
+                            print(f"Converting bot {key} to pool bot - inactive for {time_since_last_interaction/60:.1f} minutes (total bots: {assigned_bot_count})")
+                            bots_to_convert.append(key)
             
             # Remove closed bots from dictionary
             for key in bots_to_remove:
                 if key in bots_dict:
                     del bots_dict[key]
                     print(f"Removed bot {key} from active dictionary")
+            
+            # Convert inactive bots to pool bots
+            for key in bots_to_convert:
+                if key in bots_dict:
+                    bot_data = bots_dict[key]
+                    # Find next available A key
+                    existing_a_keys = [k for k in bots_dict.keys() if k.startswith('A')]
+                    if existing_a_keys:
+                        next_index = max([int(k[1:]) for k in existing_a_keys]) + 1
+                    else:
+                        next_index = 1
+                    new_key = f"A{next_index}"
+                    
+                    # Move bot to pool with new timestamp and active status
+                    bots_dict[new_key] = [time.time(), bot_data[1], True]
+                    del bots_dict[key]
+                    print(f"Converted bot {key} to pool bot {new_key}")
             
             # Wait 30 seconds before next check
             time.sleep(30)
