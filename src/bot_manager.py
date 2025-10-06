@@ -1,12 +1,64 @@
 import time
 import asyncio
 import threading
-from typing import Dict
+import os
+from typing import Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 import handle_messages
 import supabase_connector
 from chat_bot import initialize, chating
+
+class OptimizedTimer:
+    """Lightweight timer with minimal overhead and environment control."""
+    
+    def __init__(self):
+        self.enabled = os.getenv("TIMING_DEBUG", "true").lower() == "true"
+        self.start_time = None
+        self.operation_name = None
+        self.phone = None
+    
+    def start(self, operation_name: str, phone: Optional[str] = None):
+        """Start timing an operation."""
+        if not self.enabled:
+            return
+        
+        self.operation_name = operation_name
+        self.phone = phone
+        self.start_time = time.time()
+        
+        # Only log critical operations to reduce noise
+        if any(critical in operation_name for critical in ["TOTAL_MESSAGE", "AI_RESPONSE", "CUSTOMER_DATA"]):
+            phone_info = f" for {phone}" if phone else ""
+            print(f"⏱️ {operation_name}{phone_info}")
+    
+    def end(self, details: Optional[str] = None):
+        """End timing and log if slow or critical."""
+        if not self.enabled or self.start_time is None:
+            return 0
+        
+        duration = time.time() - self.start_time
+        
+        # Only log if slow (>1s) or critical operations
+        should_log = (
+            duration > 1.0 or 
+            (self.operation_name and any(critical in self.operation_name for critical in ["TOTAL_MESSAGE", "AI_RESPONSE", "CUSTOMER_DATA"])) or
+            "ERROR" in (details or "")
+        )
+        
+        if should_log:
+            phone_info = f" for {self.phone}" if self.phone else ""
+            details_info = f" - {details}" if details else ""
+            
+            # Simplified color coding
+            emoji = "�" if duration > 2.0 else "🟡" if duration > 0.5 else "�"
+            print(f"{emoji} {self.operation_name}{phone_info} {duration:.2f}s{details_info}")
+        
+        # Reset
+        self.start_time = None
+        self.operation_name = None
+        self.phone = None
+        return duration
 
 class BotManager:
     """Manages bot instances, assignment, and lifecycle."""
@@ -176,7 +228,7 @@ class BotManager:
     
     async def _process_user_message(self, connector, phone: str, data: dict):
         """
-        Process message from user asynchronously.
+        Process message from user asynchronously with detailed timing.
         
         Handles the complete message processing workflow including bot assignment,
         response generation, message sending, and database operations. This function
@@ -198,9 +250,15 @@ class BotManager:
         - Customer data management in Supabase
         - Message history storage
         """
+        timer = OptimizedTimer()
+        timer.start("TOTAL_MESSAGE_PROCESSING", phone)
+        
         # Assign bot if needed
         if phone not in self.bots_dict:
+            bot_timer = OptimizedTimer()
+            bot_timer.start("BOT_ASSIGNMENT", phone)
             self._assign_bot_to_user(phone)
+            bot_timer.end()
         
         # Process message if bot is active
         if phone in self.bots_dict and self.bots_dict[phone][2]:  # Bot is active
@@ -208,26 +266,45 @@ class BotManager:
             self.bots_dict[phone][0] = time.time()
             
             # Show typing indicator immediately
+            indicator_timer = OptimizedTimer()
+            indicator_timer.start("TYPING_INDICATOR", phone)
             try:
                 connector.send_presence(phone, "composing", delay=5000)
+                indicator_timer.end("success")
             except Exception as e:
+                indicator_timer.end(f"failed: {e}")
                 print(f"⚠️  Could not send typing indicator to {phone}: {e}")
             
-            # Get response
+            # Get response - THIS IS LIKELY THE BOTTLENECK
+            ai_timer = OptimizedTimer()
+            ai_timer.start("AI_RESPONSE_GENERATION", phone)
             print(f"📱 Generating response for {phone}")
             response = await handle_messages.get_chatbot_response(self.bots_dict[phone][1], data["data"])
+            ai_duration = ai_timer.end(f"response length: {len(response)} chars")
             print(f"🤖 Generated response: {response[:100]}{'...' if len(response) > 100 else ''}")
             
-            # ✅ Send response IMMEDIATELY
+            # Send response IMMEDIATELY
+            send_timer = OptimizedTimer()
+            send_timer.start("SEND_MESSAGE", phone)
             print(f"📤 Sending response to {phone}")
             connector.send_message(phone, response)
+            send_timer.end()
             
-            # ✅ Handle customer and save messages in BACKGROUND (don't wait)
+            # Handle customer and save messages in BACKGROUND (don't wait)
+            db_timer = OptimizedTimer()
+            db_timer.start("SCHEDULE_DB_OPERATIONS", phone)
             print(f"💾 Scheduling DB operations for {phone}")
             asyncio.create_task(self._handle_customer_data(connector, phone, data, response))
+            db_timer.end()
             
-            # ✅ Function ends HERE - User already received their response
+            # Function ends HERE - User already received their response
+            total_duration = timer.end()
             print(f"✅ Message processing completed for {phone}")
+            
+            # Summary log
+            print(f"📊 SUMMARY for {phone}: Total={total_duration:.3f}s, AI={ai_duration:.3f}s")
+        else:
+            timer.end("bot not active or not found")
     
     def _assign_bot_to_user(self, phone: str):
         """
@@ -322,7 +399,7 @@ class BotManager:
     
     async def _handle_customer_data(self, connector, phone: str, data: dict, response: str):
         """
-        Handle customer creation and message saving with caching optimization.
+        Handle customer creation and message saving with caching optimization and detailed timing.
         
         Uses in-memory cache to avoid repeated database queries for known customers.
         This significantly reduces database load and improves response times.
@@ -343,24 +420,44 @@ class BotManager:
         All database operations are performed asynchronously to avoid blocking
         the message processing pipeline. Cache is used to minimize DB queries.
         """
+        timer = OptimizedTimer()
+        timer.start("CUSTOMER_DATA_HANDLING", phone)
+        
         try:
             customer_id = None
             
             # ✅ OPTIMIZATION 1: Check cache first
+            cache_timer = OptimizedTimer()
+            cache_timer.start("CACHE_CHECK", phone)
             if phone in self.customer_cache:
                 customer_id = self.customer_cache[phone]
                 self.cache_stats["hits"] += 1
+                cache_timer.end("HIT")
                 print(f"🚀 Cache HIT for {phone} -> customer_id: {customer_id}")
             else:
+                cache_timer.end("MISS")
                 # ✅ OPTIMIZATION 2: Only query DB if not in cache
                 self.cache_stats["misses"] += 1
                 print(f"🔍 Cache MISS for {phone}, querying database...")
                 
+                # Check if customer exists in DB
+                db_check_timer = OptimizedTimer()
+                db_check_timer.start("DB_CHECK_CUSTOMER", phone)
                 existing_customers = await supabase_connector.get_customers(phone=phone)
+                db_check_timer.end(f"found {len(existing_customers)} customers")
+                
                 if len(existing_customers) == 0:
                     # Create new customer
+                    username_timer = OptimizedTimer()
+                    username_timer.start("FETCH_USERNAME", phone)
                     username = await connector.fetch_username_async(phone)
+                    username_timer.end(f"username: {username}")
+                    
+                    create_timer = OptimizedTimer()
+                    create_timer.start("CREATE_CUSTOMER", phone)
                     result = await supabase_connector.add_customers(phone=phone, username=username)
+                    create_timer.end()
+                    
                     if result and len(result) > 0:
                         customer_id = result[0]['id']
                         print(f"✅ Created new customer {customer_id} for {phone}")
@@ -370,12 +467,17 @@ class BotManager:
                 
                 # ✅ OPTIMIZATION 3: Cache the result for future use
                 if customer_id:
+                    cache_store_timer = OptimizedTimer()
+                    cache_store_timer.start("CACHE_STORE", phone)
                     self.customer_cache[phone] = customer_id
+                    cache_store_timer.end()
                     print(f"💾 Cached customer_id {customer_id} for {phone}")
             
             # Save messages to Supabase if we have a customer_id
             if customer_id:
                 # Save both messages concurrently for better performance
+                save_timer = OptimizedTimer()
+                save_timer.start("SAVE_MESSAGES", phone)
                 await asyncio.gather(
                     handle_messages.save_message(data["data"], customer_id=customer_id),
                     handle_messages.save_message(
@@ -385,6 +487,7 @@ class BotManager:
                     ),
                     return_exceptions=True  # Don't fail if one message fails to save
                 )
+                save_timer.end("both messages saved")
                 print(f"💾 Messages saved to Supabase for customer {customer_id}")
                 
                 # 📊 Show cache statistics every 10 operations
@@ -394,8 +497,12 @@ class BotManager:
                     print(f"📊 Cache stats: {hit_rate:.1f}% hit rate ({self.cache_stats['hits']} hits, {self.cache_stats['misses']} misses)")
             else:
                 print(f"⚠️  Could not determine customer_id for {phone}, messages not saved")
+            
+            total_duration = timer.end()
+            print(f"📊 DB SUMMARY for {phone}: Total DB operations took {total_duration:.3f}s")
                 
         except Exception as e:
+            timer.end(f"ERROR: {e}")
             print(f"❌ Error handling customer data for {phone}: {e}")
     
     def _process_bot_command(self, connector, data: dict):

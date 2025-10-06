@@ -1,11 +1,63 @@
 import os
 import time
 import asyncio
+from typing import Optional
 from dotenv import load_dotenv
 from evolutionapi.client import EvolutionClient
 from evolutionapi.models.message import TextMessage
 from evolutionapi.models.chat import Presence
 from evolutionapi.models.profile import FetchProfile
+
+class OptimizedTimer:
+    """Lightweight timer with minimal overhead and environment control."""
+    
+    def __init__(self):
+        self.enabled = os.getenv("TIMING_DEBUG", "true").lower() == "true"
+        self.start_time = None
+        self.operation_name = None
+        self.phone = None
+    
+    def start(self, operation_name: str, phone: Optional[str] = None):
+        """Start timing an operation."""
+        if not self.enabled:
+            return
+        
+        self.operation_name = operation_name
+        self.phone = phone
+        self.start_time = time.time()
+        
+        # Only log critical operations to reduce noise
+        if self.operation_name and any(critical in operation_name for critical in ["FETCH_USERNAME", "SEND_MESSAGE_API"]):
+            phone_info = f" for {phone}" if phone else ""
+            print(f"⏱️ {operation_name}{phone_info}")
+    
+    def end(self, details: Optional[str] = None):
+        """End timing and log if slow or critical."""
+        if not self.enabled or self.start_time is None:
+            return 0
+        
+        duration = time.time() - self.start_time
+        
+        # Only log if slow (>1s) or critical operations
+        should_log = (
+            duration > 1.0 or 
+            (self.operation_name and any(critical in self.operation_name for critical in ["FETCH_USERNAME", "SEND_MESSAGE_API"])) or
+            "ERROR" in (details or "")
+        )
+        
+        if should_log:
+            phone_info = f" for {self.phone}" if self.phone else ""
+            details_info = f" - {details}" if details else ""
+            
+            # Simplified color coding
+            emoji = "�" if duration > 2.0 else "🟡" if duration > 0.5 else "�"
+            print(f"{emoji} {self.operation_name}{phone_info} {duration:.2f}s{details_info}")
+        
+        # Reset
+        self.start_time = None
+        self.operation_name = None
+        self.phone = None
+        return duration
 
 class EvolutionConnector:
     """
@@ -148,11 +200,24 @@ class EvolutionConnector:
         Exception
             Any exception that occurs during the API call to fetch the profile.
         """
-        def _fetch_sync():
-            return self.fetch_username(phone)
+        timer = OptimizedTimer()
+        timer.start("FETCH_USERNAME_ASYNC", phone)
         
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _fetch_sync)
+        def _fetch_sync():
+            sync_timer = OptimizedTimer()
+            sync_timer.start("FETCH_USERNAME_SYNC", phone)
+            result = self.fetch_username(phone)
+            sync_timer.end(f"result: {result}")
+            return result
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, _fetch_sync)
+            timer.end(f"username: {result}")
+            return result
+        except Exception as e:
+            timer.end(f"ERROR: {e}")
+            raise
 
     def send_presence(self, to: str, presence_type: str = "composing", delay: int = 100000):
         """
@@ -183,7 +248,7 @@ class EvolutionConnector:
 
     def send_message(self, to: str, message: str):
         """
-        Sends a WhatsApp text message using Evolution API.
+        Sends a WhatsApp text message using Evolution API with optimized timing.
 
         Parameters
         ----------
@@ -202,11 +267,22 @@ class EvolutionConnector:
         any
             The response from the API.
         """
-        if not self.instance_id or not self.api_key:
-            raise ValueError("instance_id and api_key must be set and not None.")
-        text_msg = TextMessage(
-            number=to,
-            text=message
-        )
-        return self.client.messages.send_text(self.instance_id, text_msg, self.api_key)
+        timer = OptimizedTimer()
+        timer.start("SEND_MESSAGE_API", to)
+        
+        try:
+            if not self.instance_id or not self.api_key:
+                timer.end("ERROR: missing credentials")
+                raise ValueError("instance_id and api_key must be set and not None.")
+            
+            text_msg = TextMessage(
+                number=to,
+                text=message
+            )
+            result = self.client.messages.send_text(self.instance_id, text_msg, self.api_key)
+            timer.end(f"message length: {len(message)} chars")
+            return result
+        except Exception as e:
+            timer.end(f"ERROR: {e}")
+            raise
 
