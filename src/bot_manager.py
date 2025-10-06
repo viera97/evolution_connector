@@ -28,6 +28,9 @@ class BotManager:
         self._monitoring_active = False
         # Create a thread pool executor for async operations
         self.executor = ThreadPoolExecutor(max_workers=4)
+        # Customer cache optimization
+        self.customer_cache = {}  # phone -> customer_id mapping
+        self.cache_stats = {"hits": 0, "misses": 0}  # Cache performance statistics
         # Create and start an event loop in a background thread
         self.loop = None
         self.loop_thread = None
@@ -211,15 +214,20 @@ class BotManager:
                 print(f"⚠️  Could not send typing indicator to {phone}: {e}")
             
             # Get response
-            print(f"📱 Responding to {phone}")
+            print(f"📱 Generating response for {phone}")
             response = await handle_messages.get_chatbot_response(self.bots_dict[phone][1], data["data"])
-            #print(response)
+            print(f"🤖 Generated response: {response[:100]}{'...' if len(response) > 100 else ''}")
             
             # ✅ Send response IMMEDIATELY
+            print(f"📤 Sending response to {phone}")
             connector.send_message(phone, response)
             
             # ✅ Handle customer and save messages in BACKGROUND (don't wait)
+            print(f"💾 Scheduling DB operations for {phone}")
             asyncio.create_task(self._handle_customer_data(connector, phone, data, response))
+            
+            # ✅ Function ends HERE - User already received their response
+            print(f"✅ Message processing completed for {phone}")
     
     def _assign_bot_to_user(self, phone: str):
         """
@@ -314,11 +322,10 @@ class BotManager:
     
     async def _handle_customer_data(self, connector, phone: str, data: dict, response: str):
         """
-        Handle customer creation and message saving asynchronously.
+        Handle customer creation and message saving with caching optimization.
         
-        Manages customer data in Supabase by creating new customer records when
-        needed and saving both user messages and bot responses to the conversation
-        history. Fetches user profile information from WhatsApp for new customers.
+        Uses in-memory cache to avoid repeated database queries for known customers.
+        This significantly reduces database load and improves response times.
         
         Parameters
         ----------
@@ -334,23 +341,37 @@ class BotManager:
         Notes
         -----
         All database operations are performed asynchronously to avoid blocking
-        the message processing pipeline. Errors are logged but do not prevent
-        the bot from responding to the user.
+        the message processing pipeline. Cache is used to minimize DB queries.
         """
         try:
             customer_id = None
             
-            # Create customer if doesn't exist
-            existing_customers = await supabase_connector.get_customers(phone=phone)
-            if len(existing_customers) == 0:
-                username = await connector.fetch_username_async(phone)
-                result = await supabase_connector.add_customers(phone=phone, username=username)
-                if result and len(result) > 0:
-                    customer_id = result[0]['id']
-                    print(f"✅ Created new customer {customer_id} for {phone}")
+            # ✅ OPTIMIZATION 1: Check cache first
+            if phone in self.customer_cache:
+                customer_id = self.customer_cache[phone]
+                self.cache_stats["hits"] += 1
+                print(f"🚀 Cache HIT for {phone} -> customer_id: {customer_id}")
             else:
-                customer_id = existing_customers[0]['id']
-                print(f"📋 Using existing customer {customer_id} for {phone}")
+                # ✅ OPTIMIZATION 2: Only query DB if not in cache
+                self.cache_stats["misses"] += 1
+                print(f"🔍 Cache MISS for {phone}, querying database...")
+                
+                existing_customers = await supabase_connector.get_customers(phone=phone)
+                if len(existing_customers) == 0:
+                    # Create new customer
+                    username = await connector.fetch_username_async(phone)
+                    result = await supabase_connector.add_customers(phone=phone, username=username)
+                    if result and len(result) > 0:
+                        customer_id = result[0]['id']
+                        print(f"✅ Created new customer {customer_id} for {phone}")
+                else:
+                    customer_id = existing_customers[0]['id']
+                    print(f"📋 Found existing customer {customer_id} for {phone}")
+                
+                # ✅ OPTIMIZATION 3: Cache the result for future use
+                if customer_id:
+                    self.customer_cache[phone] = customer_id
+                    print(f"💾 Cached customer_id {customer_id} for {phone}")
             
             # Save messages to Supabase if we have a customer_id
             if customer_id:
@@ -365,6 +386,12 @@ class BotManager:
                     return_exceptions=True  # Don't fail if one message fails to save
                 )
                 print(f"💾 Messages saved to Supabase for customer {customer_id}")
+                
+                # 📊 Show cache statistics every 10 operations
+                total_ops = self.cache_stats["hits"] + self.cache_stats["misses"]
+                if total_ops % 10 == 0:
+                    hit_rate = (self.cache_stats["hits"] / total_ops) * 100
+                    print(f"📊 Cache stats: {hit_rate:.1f}% hit rate ({self.cache_stats['hits']} hits, {self.cache_stats['misses']} misses)")
             else:
                 print(f"⚠️  Could not determine customer_id for {phone}, messages not saved")
                 
@@ -496,3 +523,36 @@ class BotManager:
             
             # Wait 30 seconds before next check
             time.sleep(30)
+    
+    def clear_customer_cache(self):
+        """
+        Clear customer cache and reset statistics.
+        
+        Useful for debugging or when you want to force fresh database queries.
+        Cache will be rebuilt automatically as customers interact with the bot.
+        """
+        cache_size = len(self.customer_cache)
+        self.customer_cache.clear()
+        self.cache_stats = {"hits": 0, "misses": 0}
+        print(f"🗑️  Customer cache cleared ({cache_size} entries removed)")
+    
+    def get_cache_info(self):
+        """
+        Get comprehensive information about the customer cache.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing cache statistics, size, and cached phone numbers.
+        """
+        total_ops = self.cache_stats["hits"] + self.cache_stats["misses"]
+        hit_rate = (self.cache_stats["hits"] / total_ops * 100) if total_ops > 0 else 0
+        
+        return {
+            "cached_customers": len(self.customer_cache),
+            "total_operations": total_ops,
+            "hit_rate_percentage": hit_rate,
+            "cache_stats": self.cache_stats.copy(),
+            "cached_phones": list(self.customer_cache.keys()),
+            "customer_mappings": self.customer_cache.copy()
+        }
