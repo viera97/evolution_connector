@@ -165,7 +165,7 @@ class BotManager:
                         print(f"📱 Responding to {phone}")
                         # Note: This will still have the chating warning, but it's a fallback
                         response = asyncio.run(handle_messages.get_chatbot_response(self.bots_dict[phone][1], data["data"]))
-                        print(response)
+                        #print(response)
                         connector.send_message(phone, response)
                         print("⚠️  Message processed but not saved to Supabase (async loop required)")
         else:
@@ -204,16 +204,22 @@ class BotManager:
             # Update timestamp
             self.bots_dict[phone][0] = time.time()
             
+            # Show typing indicator immediately
+            try:
+                connector.send_presence(phone, "composing", delay=5000)
+            except Exception as e:
+                print(f"⚠️  Could not send typing indicator to {phone}: {e}")
+            
             # Get response
             print(f"📱 Responding to {phone}")
             response = await handle_messages.get_chatbot_response(self.bots_dict[phone][1], data["data"])
-            print(response)
+            #print(response)
             
-            # Send response
+            # ✅ Send response IMMEDIATELY
             connector.send_message(phone, response)
             
-            # Handle customer and save messages
-            await self._handle_customer_data(connector, phone, data, response)
+            # ✅ Handle customer and save messages in BACKGROUND (don't wait)
+            asyncio.create_task(self._handle_customer_data(connector, phone, data, response))
     
     def _assign_bot_to_user(self, phone: str):
         """
@@ -332,25 +338,35 @@ class BotManager:
         the bot from responding to the user.
         """
         try:
+            customer_id = None
+            
             # Create customer if doesn't exist
             existing_customers = await supabase_connector.get_customers(phone=phone)
             if len(existing_customers) == 0:
                 username = await connector.fetch_username_async(phone)
                 result = await supabase_connector.add_customers(phone=phone, username=username)
-                print(result)
+                if result and len(result) > 0:
+                    customer_id = result[0]['id']
+                    print(f"✅ Created new customer {customer_id} for {phone}")
+            else:
+                customer_id = existing_customers[0]['id']
+                print(f"📋 Using existing customer {customer_id} for {phone}")
             
-            # Save messages to Supabase
-            customers = await supabase_connector.get_customers(phone=phone)
-            if customers and len(customers) > 0:
-                customer_id = customers[0]['id']
-                await handle_messages.save_message(data["data"], customer_id=customer_id)
-                
-                # Save bot response
-                data["data"]["message"] = response
-                await handle_messages.save_message(data["data"], is_bot=True, customer_id=customer_id)
+            # Save messages to Supabase if we have a customer_id
+            if customer_id:
+                # Save both messages concurrently for better performance
+                await asyncio.gather(
+                    handle_messages.save_message(data["data"], customer_id=customer_id),
+                    handle_messages.save_message(
+                        {"message": response}, 
+                        is_bot=True, 
+                        customer_id=customer_id
+                    ),
+                    return_exceptions=True  # Don't fail if one message fails to save
+                )
                 print(f"💾 Messages saved to Supabase for customer {customer_id}")
             else:
-                print(f"❌ Could not find customer for phone {phone}")
+                print(f"⚠️  Could not determine customer_id for {phone}, messages not saved")
                 
         except Exception as e:
             print(f"❌ Error handling customer data for {phone}: {e}")
