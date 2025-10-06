@@ -1,5 +1,6 @@
 import os
 import time
+import asyncio
 from dotenv import load_dotenv
 from evolutionapi.client import EvolutionClient
 from evolutionapi.models.message import TextMessage
@@ -123,6 +124,35 @@ class EvolutionConnector:
             user_name = profile_response['name']
         
         return user_name
+
+    async def fetch_username_async(self, phone: str) -> str | None:
+        """
+        Asynchronously fetches the username/profile name for a given phone number from WhatsApp.
+        
+        This method retrieves the WhatsApp profile information for the specified
+        phone number using the Evolution API. It runs the synchronous API call
+        in a thread pool to avoid blocking the event loop.
+
+        Parameters
+        ----------
+        phone : str
+            The phone number to fetch the username for (without country code prefix).
+            
+        Returns
+        -------
+        str or None
+            The username/display name if found, None if not available or if an error occurs.
+            
+        Raises
+        ------
+        Exception
+            Any exception that occurs during the API call to fetch the profile.
+        """
+        def _fetch_sync():
+            return self.fetch_username(phone)
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _fetch_sync)
 
     def send_presence(self, to: str, presence_type: str = "composing", delay: int = 100000):
         """

@@ -335,7 +335,7 @@ class BotManager:
             # Create customer if doesn't exist
             existing_customers = await supabase_connector.get_customers(phone=phone)
             if len(existing_customers) == 0:
-                username = connector.fetch_username(phone)
+                username = await connector.fetch_username_async(phone)
                 result = await supabase_connector.add_customers(phone=phone, username=username)
                 print(result)
             
